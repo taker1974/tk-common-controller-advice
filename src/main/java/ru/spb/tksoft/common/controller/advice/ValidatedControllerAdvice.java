@@ -20,6 +20,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -29,6 +30,8 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import jakarta.validation.ConstraintViolationException;
 import ru.spb.tksoft.common.controller.dto.CommonErrorResponseDto;
 import ru.spb.tksoft.utils.log.LogEx;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -66,10 +69,29 @@ public class ValidatedControllerAdvice extends AbstractBaseControllerAdvice {
     public ResponseEntity<CommonErrorResponseDto> handleHandlerMethodValidation(
             HandlerMethodValidationException e) {
 
-        LogEx.error(log, LogEx.me(), LogEx.EXCEPTION_THROWN, HMVA_CODE,
-                e.getMessage());
+        Map<String, String> fieldErrors = new HashMap<>();
+
+        // For @Valid from @RequestBody
+        e.getBeanResults().forEach(result -> result.getResolvableErrors()
+                .forEach(error -> {
+                    if (error instanceof FieldError fieldError) {
+                        fieldErrors.put(fieldError.getField(), fieldError.getDefaultMessage());
+                    }
+                }));
+
+        // For simple parameters (@RequestParam, @PathVariable with constraints)
+        e.getValueResults().forEach(result -> {
+            String paramName = result.getMethodParameter().getParameterName();
+            result.getResolvableErrors()
+                    .forEach(error -> fieldErrors.put(paramName != null ? paramName : "param",
+                            error.getDefaultMessage()));
+        });
 
         String safeMessage = getSafeMessage(e);
+
+        LogEx.error(log, LogEx.me(), LogEx.EXCEPTION_THROWN,
+                HMVA_CODE, safeMessage + ": " + fieldErrors.toString());
+
         return new ResponseEntity<>(
                 new CommonErrorResponseDto(HMVA_CODE, safeMessage),
                 HttpStatus.BAD_REQUEST);
